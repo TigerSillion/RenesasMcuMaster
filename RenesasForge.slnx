@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src-dotnet/">
+    <Project Path="src-dotnet/RenesasForge.App/RenesasForge.App.csproj" />
+    <Project Path="src-dotnet/RenesasForge.Core/RenesasForge.Core.csproj" />
+    <Project Path="src-dotnet/RenesasForge.Protocol/RenesasForge.Protocol.csproj" />
+    <Project Path="src-dotnet/RenesasForge.Tests.UiSmoke/RenesasForge.Tests.UiSmoke.csproj" />
+    <Project Path="src-dotnet/RenesasForge.Tests.Unit/RenesasForge.Tests.Unit.csproj" />
+    <Project Path="src-dotnet/RenesasForge.Transport.Serial/RenesasForge.Transport.Serial.csproj" />
+  </Folder>
+</Solution>

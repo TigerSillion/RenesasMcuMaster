@@ -1,0 +1,82 @@
+﻿# Project baseline config for RenesasMcuMaster
+# References:
+# - https://developers.openai.com/codex/config-reference
+# - https://developers.openai.com/codex/mcp
+# - https://developers.openai.com/codex/skills
+
+model = "gpt-5.2-codex"
+model_provider = "openai"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Keep output concise but informative.
+model_reasoning_effort = "medium"
+model_verbosity = "medium"
+personality = "pragmatic"
+
+# Project instruction discovery
+project_doc_max_bytes = 65536
+project_doc_fallback_filenames = ["AGENTS.md", "README.md", "docs/AGENTS.md"]
+
+# Notification command disabled by default.
+notify = []
+
+# Guard against oversized tool output in history.
+tool_output_token_limit = 12000
+
+[sandbox_workspace_write]
+writable_roots = []
+network_access = true
+exclude_tmpdir_env_var = false
+exclude_slash_tmp = false
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+enabled = true
+required = false
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+
+# Profiles
+[profiles.plan]
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "high"
+model_verbosity = "low"
+personality = "pragmatic"
+
+[profiles.impl]
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "medium"
+model_verbosity = "medium"
+personality = "pragmatic"
+
+[profiles.review]
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "high"
+model_verbosity = "low"
+personality = "pragmatic"
+
+# Explicitly register repository-local skills.
+[[skills.config]]
+path = ".codex/skills/rx-uart-mvp"
+enabled = true
+
+[[skills.config]]
+path = ".codex/skills/pc-scope-wpf"
+enabled = true
+
+[[skills.config]]
+path = ".codex/skills/pc-scope-qt"
+enabled = true
+

@@ -1,0 +1,42 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.user
+*.suo
+*.ncb
+*.opendb
+*.VC.db
+
+# Build outputs
+build/
+bin/
+obj/
+out/
+
+# .NET
+**/bin/
+**/obj/
+*.cache
+*.pdb
+TestResults/
+
+# C/C++
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+*.abs
+*.map~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Logs
+*.log

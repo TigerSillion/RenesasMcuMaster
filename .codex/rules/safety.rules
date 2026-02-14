@@ -1,0 +1,32 @@
+﻿# Enforced command rules for Codex (Starlark)
+# Source: https://developers.openai.com/codex/rules
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Use non-destructive git workflows unless the user explicitly asks for hard reset."
+)
+
+prefix_rule(
+    pattern = ["git", "checkout", "--"],
+    decision = "forbidden",
+    justification = "Do not discard local changes without explicit user request."
+)
+
+prefix_rule(
+    pattern = ["rm", "-rf"],
+    decision = "prompt",
+    justification = "Destructive deletion requires explicit confirmation."
+)
+
+prefix_rule(
+    pattern = ["Remove-Item", "-Recurse", "-Force"],
+    decision = "prompt",
+    justification = "Destructive deletion requires explicit confirmation."
+)
+
+prefix_rule(
+    pattern = ["npm", "install"],
+    decision = "prompt",
+    justification = "Dependency changes may alter lockfiles and runtime behavior."
+)

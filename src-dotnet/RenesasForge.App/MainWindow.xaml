@@ -1,0 +1,161 @@
+﻿<Window x:Class="RenesasForge.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="RenesasForge MVP (WPF)"
+        Height="820"
+        Width="1320"
+        MinHeight="680"
+        MinWidth="1060"
+        Background="#0B1220">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Padding="10" Background="#132038" CornerRadius="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="170" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="180" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#C8D3E6" FontSize="13" Text="Serial Port" />
+                <ComboBox x:Name="PortComboBox" Grid.Column="1" Height="30" Margin="0,0,10,0" VerticalContentAlignment="Center" />
+                <Button Grid.Column="2" Width="80" Height="30" Margin="0,0,12,0" Content="Refresh" Click="RefreshPortsButton_OnClick" />
+
+                <TextBlock Grid.Column="3" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#C8D3E6" FontSize="13" Text="Protocol" />
+                <ComboBox x:Name="ProtocolComboBox" Grid.Column="4" Height="30" Margin="0,0,12,0" VerticalContentAlignment="Center" SelectionChanged="ProtocolComboBox_OnSelectionChanged">
+                    <ComboBoxItem Content="AutoDetect" IsSelected="True" />
+                    <ComboBoxItem Content="RForgeBinary" />
+                    <ComboBoxItem Content="VofaCompatible" />
+                </ComboBox>
+
+                <Button Grid.Column="5" Width="92" Height="30" Margin="0,0,8,0" Content="Connect" Click="ConnectButton_OnClick" />
+                <Button Grid.Column="6" Width="92" Height="30" Margin="0,0,8,0" Content="Disconnect" Click="DisconnectButton_OnClick" />
+
+                <TextBlock Grid.Column="7" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#95A6C2" FontSize="12" Text="v1.0 UART MVP" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Margin="0,10,0,10" Padding="10" Background="#132038" CornerRadius="8">
+            <WrapPanel>
+                <Button Width="96" Height="30" Margin="0,0,8,0" Content="PING" Click="PingButton_OnClick" />
+                <Button Width="120" Height="30" Margin="0,0,8,0" Content="STREAM START" Click="StreamStartButton_OnClick" />
+                <Button Width="120" Height="30" Margin="0,0,8,0" Content="STREAM STOP" Click="StreamStopButton_OnClick" />
+                <Button Width="130" Height="30" Margin="0,0,8,0" Content="GET VAR TABLE" Click="GetVarTableButton_OnClick" />
+
+                <Separator Width="18" />
+
+                <Button Width="120" Height="30" Margin="0,0,8,0" Content="Start Record" Click="StartRecordButton_OnClick" />
+                <Button Width="120" Height="30" Margin="0,0,8,0" Content="Stop Record" Click="StopRecordButton_OnClick" />
+                <Button Width="110" Height="30" Margin="0,0,8,0" Content="Export CSV" Click="ExportCsvButton_OnClick" />
+            </WrapPanel>
+        </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2.4*" />
+                <ColumnDefinition Width="1.2*" />
+                <ColumnDefinition Width="1.4*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Margin="0,0,10,0" Background="#101A2D" CornerRadius="8" BorderBrush="#223758" BorderThickness="1">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Margin="0,0,0,8" Foreground="#DCE7F9" FontSize="14" FontWeight="SemiBold" Text="Waveform" />
+                    <Canvas x:Name="WaveCanvas" Grid.Row="1" Background="#0A1020" SizeChanged="WaveCanvas_OnSizeChanged">
+                        <Polyline x:Name="WavePolyline" Stroke="#4DE0A8" StrokeThickness="1.6" />
+                    </Canvas>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="1" Margin="0,0,10,0" Background="#101A2D" CornerRadius="8" BorderBrush="#223758" BorderThickness="1" Padding="12">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Foreground="#DCE7F9" FontSize="14" FontWeight="SemiBold" Text="Variables" />
+
+                    <DataGrid x:Name="VariableGrid"
+                              Grid.Row="1"
+                              Margin="0,8,0,8"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              HeadersVisibility="Column"
+                              Background="#0A1020"
+                              Foreground="#DCE7F9"
+                              BorderBrush="#223758"
+                              BorderThickness="1"
+                              RowBackground="#0D1628"
+                              AlternatingRowBackground="#101D33"
+                              GridLinesVisibility="None">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
+                            <DataGridTextColumn Header="Addr" Binding="{Binding AddressHex}" Width="82" />
+                            <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="88" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <WrapPanel Grid.Row="2">
+                        <Button Width="90" Height="28" Margin="0,0,8,0" Content="Load Mock" Click="LoadMockVarsButton_OnClick" />
+                        <Button Width="90" Height="28" Margin="0,0,8,0" Content="Write Sel" Click="WriteSelectedVarButton_OnClick" />
+                        <Button Width="90" Height="28" Content="Read Sel" Click="ReadSelectedVarButton_OnClick" />
+                    </WrapPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Background="#101A2D" CornerRadius="8" BorderBrush="#223758" BorderThickness="1" Padding="12">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Foreground="#DCE7F9" FontSize="14" FontWeight="SemiBold" Text="Runtime Stats" />
+
+                    <StackPanel Grid.Row="1" Margin="0,8,0,8">
+                        <TextBlock x:Name="ConnectionStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Status: Disconnected" />
+                        <TextBlock x:Name="ProtocolStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Parser: AutoDetect" />
+                        <TextBlock x:Name="FramesStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Frames: 0" />
+                        <TextBlock x:Name="SamplesStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Samples: 0" />
+                        <TextBlock x:Name="ErrorsStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Errors: 0" />
+                        <TextBlock x:Name="RecordStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Record: Off" />
+                    </StackPanel>
+
+                    <ListBox x:Name="LogListBox"
+                             Grid.Row="2"
+                             Background="#0A1020"
+                             Foreground="#C8D3E6"
+                             BorderBrush="#223758"
+                             BorderThickness="1"
+                             FontFamily="Consolas"
+                             FontSize="12" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="3" Margin="0,10,0,0" Background="#132038" CornerRadius="8" Padding="8">
+            <TextBlock x:Name="BottomStatusText" Foreground="#95A6C2" FontSize="12" Text="Ready." />
+        </Border>
+    </Grid>
+</Window>
