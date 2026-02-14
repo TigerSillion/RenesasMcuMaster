@@ -18,6 +18,7 @@ Script:
 
 ## Typical Setup (Windows)
 1. Create a virtual COM pair (example): `COM8 <-> COM9`.
+2. In VSPE, use a real `Pair` device. Do not use two standalone `Connector` devices.
 2. Open GUI on one side (`COM8`).
 3. Run simulator on the other side (`COM9`).
 
@@ -85,3 +86,17 @@ python tools/uart_mcu_sim.py --port COM9 --baud 921600 --protocol vofa --channel
 - no crash
 - recoverable parser errors
 - variable read/write still functional
+
+## Automated E2E Validation
+
+Use script:
+- `tools/uart_e2e_tester.py`
+
+Command:
+```powershell
+python tools/uart_e2e_tester.py --port COM8 --baud 921600 --duration 6 --out build/e2e_report.json
+```
+
+Expected:
+1. `PING`, `GET_VAR_TABLE`, `READ_MEM_BATCH`, `WRITE_MEM`, `STREAM_START/STOP` all pass
+2. `build/e2e_report.json` contains `"ok": true`

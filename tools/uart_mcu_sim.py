@@ -88,6 +88,7 @@ def iter_rforge_frames(buffer: bytearray):
     while True:
         if len(buffer) < 10:
             return
+        # Resync on SOF to tolerate line noise / framing errors.
         sof = buffer.find(b"\xAA\x55")
         if sof < 0:
             buffer.clear()
@@ -287,7 +288,7 @@ def parse_writemem(payload: bytes) -> List[tuple[int, float]]:
 class UartMcuSim:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.port = serial.Serial(args.port, args.baud, timeout=0.01)
+        self.port = serial.Serial(args.port, args.baud, timeout=0.01, write_timeout=0.05)
         self.rx_buf = bytearray()
         self.tx_seq = 1
         self.stream_enabled = args.auto_stream
@@ -305,6 +306,7 @@ class UartMcuSim:
         self.readmem_format = args.readmem_format
         self.vars = self._build_vars()
         self.var_by_addr: Dict[int, Variable] = {v.address: v for v in self.vars}
+        self.write_timeout_count = 0
 
     def _build_vars(self) -> List[Variable]:
         if self.args.map_file:
@@ -332,8 +334,14 @@ class UartMcuSim:
         if self.drop_rate > 0 and random.random() < self.drop_rate:
             return
         pkt = build_rforge_frame(int(cmd), self.next_seq(), payload, self.crc_error_rate)
-        self.port.write(pkt)
-        self.stats_tx_frames += 1
+        try:
+            self.port.write(pkt)
+            self.stats_tx_frames += 1
+        except serial.SerialTimeoutException:
+            # Backpressure is expected at high stream rates; keep simulator alive.
+            self.write_timeout_count += 1
+        except serial.SerialException:
+            self.write_timeout_count += 1
 
     def send_stream_frame(self):
         t = time.perf_counter() - self.start_time
@@ -355,8 +363,13 @@ class UartMcuSim:
             vals.append(f"{0.7 * base + mod + ch * 0.03:.6f}")
         line = ",".join(vals) + "\n"
         if self.drop_rate == 0.0 or random.random() >= self.drop_rate:
-            self.port.write(line.encode("ascii"))
-            self.stats_tx_frames += 1
+            try:
+                self.port.write(line.encode("ascii"))
+                self.stats_tx_frames += 1
+            except serial.SerialTimeoutException:
+                self.write_timeout_count += 1
+            except serial.SerialException:
+                self.write_timeout_count += 1
 
     def stream_worker(self):
         period = 1.0 / self.stream_hz
@@ -372,6 +385,7 @@ class UartMcuSim:
             if delay > 0:
                 time.sleep(delay)
             else:
+                # If producer falls behind, drop schedule debt and continue.
                 next_deadline = time.perf_counter()
 
     def tick_vars(self):
@@ -424,7 +438,7 @@ class UartMcuSim:
                     self.var_by_addr[addr].value = val
             self.send_rforge(CommandId.Ack, b"")
         elif cmd == CommandId.SetStreamConfig and len(payload) >= 2:
-            # convention for simulator: [channel_count, stream_hz(Hz) low-byte]
+            # Simulator convention: [channel_count, stream_hz(Hz) low-byte].
             self.channel_count = max(1, payload[0])
             self.stream_hz = max(1.0, float(payload[1]))
             self.send_rforge(CommandId.Ack, b"")
@@ -439,6 +453,7 @@ class UartMcuSim:
         print(
             f"[SIM] tx={tx_rate:7.1f} fps  rx={rx_rate:6.1f} fps  "
             f"stream={'on' if self.stream_enabled else 'off'}  "
+            f"wto={self.write_timeout_count}  "
             f"vars={len(self.vars)}"
         )
         self.stats_tx_frames = 0

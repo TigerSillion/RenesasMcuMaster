@@ -261,6 +261,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Drain currently available bytes and let parser reconstruct complete frames.
             var available = _transport.BytesAvailable;
             if (available <= 0) return;
 
@@ -289,6 +290,7 @@ public partial class MainWindow : Window
 
     private void HandleFrame(ModelFrame frame)
     {
+        // Keep UI command flow deterministic by dispatching each protocol command explicitly.
         switch (frame.Cmd)
         {
             case CommandId.Ack:
@@ -370,6 +372,7 @@ public partial class MainWindow : Window
         dataFrame = new DataFrame(0, Array.Empty<ChannelValue>());
         if (frame.Cmd != CommandId.StreamData || frame.Payload.Length == 0) return false;
 
+        // Binary stream format: ts_us(8) + repeat(channel_id:u16, value:f32).
         if (frame.Payload.Length >= 8 && (frame.Payload.Length - 8) % 6 == 0)
         {
             var ts = BitConverter.ToUInt64(frame.Payload, 0);
@@ -386,6 +389,7 @@ public partial class MainWindow : Window
         }
 
         var text = Encoding.ASCII.GetString(frame.Payload);
+        // VOFA-compatible text mode: comma-separated numeric values.
         var parts = text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0) return false;
 
@@ -440,6 +444,7 @@ public partial class MainWindow : Window
 
         if (state == ConnectionState.Error && !_manualDisconnect && _lastConfig is not null)
         {
+            // Single delayed retry is enough for MVP and avoids reconnect storms.
             await Task.Delay(1200);
             if (!_transport.IsOpen)
             {

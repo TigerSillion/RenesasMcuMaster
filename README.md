@@ -1,19 +1,26 @@
 # RenesasMcuMaster (RenesasForge MVP)
 
-当前主线已迁移到 `WPF + .NET`，用于交付 Windows 首发的 UART 商用 MVP：
+Windows-first MCU debug toolchain for Renesas RX targets.
 
-1. 软件示波器
-2. 全局变量读写
-3. 录制回放与 CSV 导出
-4. 串口稳定性与协议鲁棒性
+Current delivery baseline:
+1. WPF/.NET desktop app (`src-dotnet/`)
+2. UART transport with dual parser (`RForgeBinary` + `VOFA compatible`)
+3. Variable read/write, waveform streaming, recording/export
+4. UART simulator + E2E tester for repeatable regression
 
-## 当前状态
+## Repository Entry
 
-1. 主线代码目录：`src-dotnet/`
-2. 入口方案文件：`RenesasForge.slnx`
-3. 旧 Qt 目录：`src/`（legacy 冻结，不再新增功能）
+1. Solution entry: `RenesasForge.slnx`
+2. Main app: `src-dotnet/RenesasForge.App`
+3. Core/protocol/transport:
+- `src-dotnet/RenesasForge.Core`
+- `src-dotnet/RenesasForge.Protocol`
+- `src-dotnet/RenesasForge.Transport.Serial`
+4. Tools:
+- UART MCU simulator: `tools/uart_mcu_sim.py`
+- UART E2E test runner: `tools/uart_e2e_tester.py`
 
-## 快速开始
+## Build And Run
 
 ```powershell
 dotnet build RenesasForge.slnx -c Debug
@@ -21,16 +28,37 @@ dotnet run --project src-dotnet/RenesasForge.App
 dotnet test src-dotnet/RenesasForge.Tests.Unit/RenesasForge.Tests.Unit.csproj -c Debug
 ```
 
-## 文档入口（最新）
+## End-To-End UART Validation
 
-1. MVP 实施总览：`mvp_implementation_plan.md`
-2. Phase 1 方案：`Phase1_实施方案_RX_UART.md`
-3. 平台规划：`mcu_platform_plan.md`
-4. WPF 架构：`docs/architecture/wpf_mvp_architecture.md`
-5. Qt->WPF 迁移差异：`docs/migration/qt_to_wpf_gap_analysis.md`
-6. Legacy 冻结策略：`docs/migration/legacy_qt_freeze_policy.md`
-7. UART MCU 模拟器：`docs/uart_simulator_guide.md`
+Prerequisite: virtual serial pair is connected (example `COM8 <-> COM9`).
 
-## 说明
+1. Start simulator (MCU side):
+```powershell
+python tools/uart_mcu_sim.py --port COM9 --baud 921600 --protocol rforge --channels 8 --stream-hz 220
+```
 
-已删除历史无效文档（编码损坏的旧版高速通信文档），仓库文档以以上清单为准。
+2. Run automated protocol regression (PC side):
+```powershell
+python tools/uart_e2e_tester.py --port COM8 --baud 921600 --duration 6 --out build/e2e_report.json
+```
+
+3. Expected result:
+- `build/e2e_report.json` contains `"ok": true`
+
+## Documentation Index
+
+1. MVP implementation plan: `mvp_implementation_plan.md`
+2. Phase 1 plan: `Phase1_实施方案_RX_UART.md`
+3. Platform plan: `mcu_platform_plan.md`
+4. WPF architecture: `docs/architecture/wpf_mvp_architecture.md`
+5. UART simulator usage: `docs/uart_simulator_guide.md`
+6. Quick start checklist: `docs/quick_start.md`
+7. Development log: `docs/development_log.md`
+8. Qt legacy migration notes:
+- `docs/migration/qt_to_wpf_gap_analysis.md`
+- `docs/migration/legacy_qt_freeze_policy.md`
+
+## Notes
+
+1. `src/` and `CMakeLists.txt` are legacy references and not the active implementation path.
+2. Active feature development is done in `src-dotnet/`.
