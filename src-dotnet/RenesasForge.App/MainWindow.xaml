@@ -24,8 +24,9 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="170" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="100" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="180" />
+                    <ColumnDefinition Width="160" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
@@ -33,19 +34,27 @@
 
                 <TextBlock Grid.Column="0" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#C8D3E6" FontSize="13" Text="Serial Port" />
                 <ComboBox x:Name="PortComboBox" Grid.Column="1" Height="30" Margin="0,0,10,0" VerticalContentAlignment="Center" />
-                <Button Grid.Column="2" Width="80" Height="30" Margin="0,0,12,0" Content="Refresh" Click="RefreshPortsButton_OnClick" />
+                <Button Grid.Column="2" Width="80" Height="30" Margin="0,0,10,0" Content="Refresh" Click="RefreshPortsButton_OnClick" />
+                <ComboBox x:Name="BaudComboBox" Grid.Column="3" Height="30" Margin="0,0,12,0" VerticalContentAlignment="Center">
+                    <ComboBoxItem Content="115200" />
+                    <ComboBoxItem Content="230400" />
+                    <ComboBoxItem Content="460800" />
+                    <ComboBoxItem Content="921600" IsSelected="True" />
+                    <ComboBoxItem Content="1500000" />
+                    <ComboBoxItem Content="2000000" />
+                </ComboBox>
 
-                <TextBlock Grid.Column="3" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#C8D3E6" FontSize="13" Text="Protocol" />
-                <ComboBox x:Name="ProtocolComboBox" Grid.Column="4" Height="30" Margin="0,0,12,0" VerticalContentAlignment="Center" SelectionChanged="ProtocolComboBox_OnSelectionChanged">
+                <TextBlock Grid.Column="4" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#C8D3E6" FontSize="13" Text="Protocol" />
+                <ComboBox x:Name="ProtocolComboBox" Grid.Column="5" Height="30" Margin="0,0,12,0" VerticalContentAlignment="Center" SelectionChanged="ProtocolComboBox_OnSelectionChanged">
                     <ComboBoxItem Content="AutoDetect" IsSelected="True" />
                     <ComboBoxItem Content="RForgeBinary" />
                     <ComboBoxItem Content="VofaCompatible" />
                 </ComboBox>
 
-                <Button Grid.Column="5" Width="92" Height="30" Margin="0,0,8,0" Content="Connect" Click="ConnectButton_OnClick" />
-                <Button Grid.Column="6" Width="92" Height="30" Margin="0,0,8,0" Content="Disconnect" Click="DisconnectButton_OnClick" />
+                <Button Grid.Column="6" Width="92" Height="30" Margin="0,0,8,0" Content="Connect" Click="ConnectButton_OnClick" />
+                <Button Grid.Column="7" Width="92" Height="30" Margin="0,0,8,0" Content="Disconnect" Click="DisconnectButton_OnClick" />
 
-                <TextBlock Grid.Column="7" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#95A6C2" FontSize="12" Text="v1.0 UART MVP" />
+                <TextBlock Grid.Column="8" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#95A6C2" FontSize="12" Text="v1.0 UART MVP" />
             </Grid>
         </Border>
 
@@ -55,6 +64,11 @@
                 <Button Width="120" Height="30" Margin="0,0,8,0" Content="STREAM START" Click="StreamStartButton_OnClick" />
                 <Button Width="120" Height="30" Margin="0,0,8,0" Content="STREAM STOP" Click="StreamStopButton_OnClick" />
                 <Button Width="130" Height="30" Margin="0,0,8,0" Content="GET VAR TABLE" Click="GetVarTableButton_OnClick" />
+                <TextBlock Margin="4,0,6,0" VerticalAlignment="Center" Foreground="#95A6C2" Text="Ch" />
+                <TextBox x:Name="StreamChannelTextBox" Width="40" Height="28" Margin="0,0,8,0" Text="8" />
+                <TextBlock Margin="4,0,6,0" VerticalAlignment="Center" Foreground="#95A6C2" Text="Hz" />
+                <TextBox x:Name="StreamRateTextBox" Width="52" Height="28" Margin="0,0,8,0" Text="200" />
+                <Button Width="112" Height="30" Margin="0,0,8,0" Content="SET STREAM" Click="SetStreamConfigButton_OnClick" />
 
                 <Separator Width="18" />
 
@@ -100,6 +114,7 @@
                               Margin="0,8,0,8"
                               AutoGenerateColumns="False"
                               CanUserAddRows="False"
+                              SelectionMode="Extended"
                               HeadersVisibility="Column"
                               Background="#0A1020"
                               Foreground="#DCE7F9"
@@ -111,6 +126,9 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
                             <DataGridTextColumn Header="Addr" Binding="{Binding AddressHex}" Width="82" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding TypeName}" Width="70" />
+                            <DataGridTextColumn Header="Scale" Binding="{Binding Scale}" Width="65" />
+                            <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="50" />
                             <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="88" />
                         </DataGrid.Columns>
                     </DataGrid>
@@ -139,6 +157,7 @@
                         <TextBlock x:Name="FramesStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Frames: 0" />
                         <TextBlock x:Name="SamplesStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Samples: 0" />
                         <TextBlock x:Name="ErrorsStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Errors: 0" />
+                        <TextBlock x:Name="ParserErrorStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="CRC/Oversize: 0/0" />
                         <TextBlock x:Name="RecordStatusText" Margin="0,0,0,5" Foreground="#95A6C2" Text="Record: Off" />
                     </StackPanel>
 

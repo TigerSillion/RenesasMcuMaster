@@ -11,6 +11,8 @@ public sealed class ParserManager
 
     public ParserType Mode { get; private set; } = ParserType.AutoDetect;
     public ParserType ActiveType => Mode == ParserType.AutoDetect ? _autoDetectedType ?? ParserType.AutoDetect : Mode;
+    public int CrcErrorCount => _rforge.CrcErrorCount;
+    public int OversizePayloadCount => _rforge.OversizePayloadCount;
 
     public void SetMode(ParserType mode)
     {

@@ -274,12 +274,29 @@ def parse_readmem_req(payload: bytes) -> List[tuple[int, int]]:
     return reqs
 
 
-def parse_writemem(payload: bytes) -> List[tuple[int, float]]:
-    wrs: List[tuple[int, float]] = []
+def parse_writemem(payload: bytes) -> List[tuple[int, bytes]]:
+    wrs: List[tuple[int, bytes]] = []
+    i = 0
+
+    # New format: repeat [addr:u32][size:u16][raw:size]
+    while i + 6 <= len(payload):
+        addr = struct.unpack_from("<I", payload, i)[0]
+        size = struct.unpack_from("<H", payload, i + 4)[0]
+        i += 6
+        if i + size > len(payload):
+            wrs.clear()
+            break
+        wrs.append((addr, bytes(payload[i : i + size])))
+        i += size
+
+    if wrs:
+        return wrs
+
+    # Legacy fallback: repeat [addr:u32][value:f32]
     i = 0
     while i + 8 <= len(payload):
         addr = struct.unpack_from("<I", payload, i)[0]
-        value = struct.unpack_from("<f", payload, i + 4)[0]
+        value = struct.pack("<f", struct.unpack_from("<f", payload, i + 4)[0])
         wrs.append((addr, value))
         i += 8
     return wrs
@@ -433,9 +450,30 @@ class UartMcuSim:
                 payload_out = encode_readmem_text(vals)
             self.send_rforge(CommandId.ReadMemBatch, payload_out)
         elif cmd == CommandId.WriteMem:
-            for addr, val in parse_writemem(payload):
-                if addr in self.var_by_addr:
-                    self.var_by_addr[addr].value = val
+            for addr, raw in parse_writemem(payload):
+                if addr not in self.var_by_addr:
+                    continue
+
+                v = self.var_by_addr[addr]
+                try:
+                    if v.dtype == DataType.Int8 and len(raw) >= 1:
+                        v.value = float(struct.unpack_from("<b", raw, 0)[0])
+                    elif v.dtype == DataType.UInt8 and len(raw) >= 1:
+                        v.value = float(struct.unpack_from("<B", raw, 0)[0])
+                    elif v.dtype == DataType.Int16 and len(raw) >= 2:
+                        v.value = float(struct.unpack_from("<h", raw, 0)[0])
+                    elif v.dtype == DataType.UInt16 and len(raw) >= 2:
+                        v.value = float(struct.unpack_from("<H", raw, 0)[0])
+                    elif v.dtype == DataType.Int32 and len(raw) >= 4:
+                        v.value = float(struct.unpack_from("<i", raw, 0)[0])
+                    elif v.dtype == DataType.UInt32 and len(raw) >= 4:
+                        v.value = float(struct.unpack_from("<I", raw, 0)[0])
+                    elif v.dtype == DataType.Float64 and len(raw) >= 8:
+                        v.value = float(struct.unpack_from("<d", raw, 0)[0])
+                    elif len(raw) >= 4:
+                        v.value = float(struct.unpack_from("<f", raw, 0)[0])
+                except struct.error:
+                    pass
             self.send_rforge(CommandId.Ack, b"")
         elif cmd == CommandId.SetStreamConfig and len(payload) >= 2:
             # Simulator convention: [channel_count, stream_hz(Hz) low-byte].

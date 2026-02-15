@@ -87,10 +87,11 @@ public partial class MainWindow : Window
         }
 
         _manualDisconnect = false;
-        _lastConfig = new TransportConfig(selected, 921600);
+        var baud = ParseBaudOrDefault();
+        _lastConfig = new TransportConfig(selected, baud);
         var ok = await _transport.OpenAsync(_lastConfig, CancellationToken.None);
-        BottomStatusText.Text = ok ? $"Connected to {selected}" : $"Failed to connect to {selected}";
-        Log(ok ? $"Connected {selected}" : $"Connect failed {selected}");
+        BottomStatusText.Text = ok ? $"Connected to {selected}@{baud}" : $"Failed to connect to {selected}";
+        Log(ok ? $"Connected {selected}@{baud}" : $"Connect failed {selected}");
     }
 
     private async void DisconnectButton_OnClick(object sender, RoutedEventArgs e)
@@ -129,6 +130,32 @@ public partial class MainWindow : Window
         _ = sender;
         _ = e;
         await SendCommandAsync(CommandId.GetVarTable, Array.Empty<byte>());
+    }
+
+    private async void SetStreamConfigButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        if (!byte.TryParse(StreamChannelTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var channelCount) || channelCount == 0)
+        {
+            BottomStatusText.Text = "Invalid stream channel count.";
+            return;
+        }
+
+        if (!ushort.TryParse(StreamRateTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var streamHz) || streamHz == 0)
+        {
+            BottomStatusText.Text = "Invalid stream rate.";
+            return;
+        }
+
+        // Protocol proposal: [channel_count:u8][reserved:u8][stream_hz:u16][flags:u16].
+        var payload = new byte[6];
+        payload[0] = channelCount;
+        payload[1] = 0;
+        BitConverter.GetBytes(streamHz).CopyTo(payload, 2);
+        BitConverter.GetBytes((ushort)0).CopyTo(payload, 4);
+        await SendCommandAsync(CommandId.SetStreamConfig, payload);
+        Log($"SET_STREAM_CONFIG ch={channelCount} hz={streamHz}");
     }
 
     private async void StartRecordButton_OnClick(object sender, RoutedEventArgs e)
@@ -174,36 +201,51 @@ public partial class MainWindow : Window
     {
         _ = sender;
         _ = e;
-        if (VariableGrid.SelectedItem is not VariableItem item)
+        var selectedItems = VariableGrid.SelectedItems.Cast<VariableItem>().ToArray();
+        if (selectedItems.Length == 0)
         {
             BottomStatusText.Text = "Select a variable first.";
             return;
         }
 
-        var payload = new byte[8];
-        BitConverter.GetBytes(item.Address).CopyTo(payload, 0);
-        var f32 = (float)item.Value;
-        BitConverter.GetBytes(f32).CopyTo(payload, 4);
+        var payload = new List<byte>(selectedItems.Length * 8);
+        foreach (var item in selectedItems)
+        {
+            if (!TryEncodeWriteValue(item, out var rawValue))
+            {
+                BottomStatusText.Text = $"Type encode failed: {item.Name}";
+                return;
+            }
 
-        await SendCommandAsync(CommandId.WriteMem, payload);
-        Log($"WRITE_MEM {item.Name}={item.Value.ToString(CultureInfo.InvariantCulture)}");
+            payload.AddRange(BitConverter.GetBytes(item.Address));
+            payload.AddRange(BitConverter.GetBytes((ushort)rawValue.Length));
+            payload.AddRange(rawValue);
+        }
+
+        await SendCommandAsync(CommandId.WriteMem, payload.ToArray());
+        Log($"WRITE_MEM count={selectedItems.Length}");
     }
 
     private async void ReadSelectedVarButton_OnClick(object sender, RoutedEventArgs e)
     {
         _ = sender;
         _ = e;
-        if (VariableGrid.SelectedItem is not VariableItem item)
+        var selectedItems = VariableGrid.SelectedItems.Cast<VariableItem>().ToArray();
+        if (selectedItems.Length == 0)
         {
             BottomStatusText.Text = "Select a variable first.";
             return;
         }
 
-        var payload = new byte[6];
-        BitConverter.GetBytes(item.Address).CopyTo(payload, 0);
-        BitConverter.GetBytes((ushort)4).CopyTo(payload, 4);
-        await SendCommandAsync(CommandId.ReadMemBatch, payload);
-        Log($"READ_MEM_BATCH {item.Name} @ {item.AddressHex}");
+        var payload = new List<byte>(selectedItems.Length * 6);
+        foreach (var item in selectedItems)
+        {
+            payload.AddRange(BitConverter.GetBytes(item.Address));
+            payload.AddRange(BitConverter.GetBytes(GetDataTypeSize(item.Type)));
+        }
+
+        await SendCommandAsync(CommandId.ReadMemBatch, payload.ToArray());
+        Log($"READ_MEM_BATCH count={selectedItems.Length}");
     }
 
     private void ProtocolComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -280,6 +322,7 @@ public partial class MainWindow : Window
             {
                 FramesStatusText.Text = $"Frames: {_frameCount}";
                 ProtocolStatusText.Text = $"Parser: {_parser.ActiveType}";
+                ParserErrorStatusText.Text = $"CRC/Oversize: {_parser.CrcErrorCount}/{_parser.OversizePayloadCount}";
             });
         }
         catch (Exception ex)
@@ -294,7 +337,7 @@ public partial class MainWindow : Window
         switch (frame.Cmd)
         {
             case CommandId.Ack:
-                Log($"ACK seq={frame.Seq}");
+                HandleAckFrame(frame);
                 break;
             case CommandId.GetVarTable:
                 HandleVarTableFrame(frame.Payload);
@@ -331,7 +374,7 @@ public partial class MainWindow : Window
             _variableMap.Clear();
             foreach (var descriptor in descriptors)
             {
-                var item = new VariableItem(descriptor.Name, descriptor.Address, 0);
+                var item = new VariableItem(descriptor.Name, descriptor.Address, descriptor.Type, descriptor.Scale, descriptor.Unit, 0);
                 _variables.Add(item);
                 _variableMap[descriptor.Address] = item;
             }
@@ -518,10 +561,87 @@ public partial class MainWindow : Window
         _variableMap.Clear();
         foreach (var descriptor in mock)
         {
-            var item = new VariableItem(descriptor.Name, descriptor.Address, 0);
+            var item = new VariableItem(descriptor.Name, descriptor.Address, descriptor.Type, descriptor.Scale, descriptor.Unit, 0);
             _variables.Add(item);
             _variableMap[descriptor.Address] = item;
         }
+    }
+
+    private int ParseBaudOrDefault()
+    {
+        var selected = (BaudComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        return int.TryParse(selected, NumberStyles.Integer, CultureInfo.InvariantCulture, out var baud) ? baud : 921600;
+    }
+
+    private void HandleAckFrame(ModelFrame frame)
+    {
+        if (frame.Payload.Length >= 4)
+        {
+            var status = frame.Payload[0];
+            var cmd = (CommandId)frame.Payload[1];
+            var seq = BitConverter.ToUInt16(frame.Payload, 2);
+            var statusText = status switch
+            {
+                0 => "OK",
+                1 => "INVALID_CMD",
+                2 => "INVALID_PAYLOAD",
+                3 => "BUSY",
+                4 => "DENIED",
+                _ => $"ERR_{status}"
+            };
+            Log($"ACK seq={frame.Seq} status={statusText} for={cmd}#{seq}");
+            return;
+        }
+
+        Log($"ACK seq={frame.Seq}");
+    }
+
+    private static bool TryEncodeWriteValue(VariableItem item, out byte[] raw)
+    {
+        raw = Array.Empty<byte>();
+        var scaled = item.Scale == 0 ? item.Value : item.Value / item.Scale;
+        switch (item.Type)
+        {
+            case DataType.Int8:
+                raw = new[] { unchecked((byte)(sbyte)Math.Round(scaled)) };
+                return true;
+            case DataType.UInt8:
+                raw = new[] { (byte)Math.Clamp(Math.Round(scaled), (double)byte.MinValue, byte.MaxValue) };
+                return true;
+            case DataType.Int16:
+                raw = BitConverter.GetBytes((short)Math.Clamp(Math.Round(scaled), short.MinValue, short.MaxValue));
+                return true;
+            case DataType.UInt16:
+                raw = BitConverter.GetBytes((ushort)Math.Clamp(Math.Round(scaled), (double)ushort.MinValue, ushort.MaxValue));
+                return true;
+            case DataType.Int32:
+                raw = BitConverter.GetBytes((int)Math.Clamp(Math.Round(scaled), int.MinValue, int.MaxValue));
+                return true;
+            case DataType.UInt32:
+                raw = BitConverter.GetBytes((uint)Math.Clamp(Math.Round(scaled), (double)uint.MinValue, uint.MaxValue));
+                return true;
+            case DataType.Float64:
+                raw = BitConverter.GetBytes(scaled);
+                return true;
+            default:
+                raw = BitConverter.GetBytes((float)scaled);
+                return true;
+        }
+    }
+
+    private static ushort GetDataTypeSize(DataType type)
+    {
+        return type switch
+        {
+            DataType.Int8 => 1,
+            DataType.UInt8 => 1,
+            DataType.Int16 => 2,
+            DataType.UInt16 => 2,
+            DataType.Int32 => 4,
+            DataType.UInt32 => 4,
+            DataType.Float64 => 8,
+            _ => 4
+        };
     }
 
     private void Log(string message)
@@ -529,7 +649,7 @@ public partial class MainWindow : Window
         var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
         _logs.Add(entry);
         while (_logs.Count > 400) _logs.RemoveAt(0);
-        LogListBox.ScrollIntoView(entry);
+        if (LogListBox is not null) LogListBox.ScrollIntoView(entry);
     }
 }
 
@@ -537,15 +657,22 @@ public sealed class VariableItem : INotifyPropertyChanged
 {
     private double _value;
 
-    public VariableItem(string name, uint address, double value)
+    public VariableItem(string name, uint address, DataType type, double scale, string unit, double value)
     {
         Name = name;
         Address = address;
+        Type = type;
+        Scale = scale;
+        Unit = unit;
         _value = value;
     }
 
     public string Name { get; }
     public uint Address { get; }
+    public DataType Type { get; }
+    public string TypeName => Type.ToString();
+    public double Scale { get; }
+    public string Unit { get; }
     public string AddressHex => $"0x{Address:X8}";
 
     public double Value

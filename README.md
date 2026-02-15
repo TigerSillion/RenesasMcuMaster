@@ -52,9 +52,10 @@ python tools/uart_e2e_tester.py --port COM8 --baud 921600 --duration 6 --out bui
 3. Platform plan: `mcu_platform_plan.md`
 4. WPF architecture: `docs/architecture/wpf_mvp_architecture.md`
 5. UART simulator usage: `docs/uart_simulator_guide.md`
-6. Quick start checklist: `docs/quick_start.md`
-7. Development log: `docs/development_log.md`
-8. Qt legacy migration notes:
+6. UART protocol spec: `docs/protocol/rforge_uart_debug_protocol_v1.md`
+7. Quick start checklist: `docs/quick_start.md`
+8. Development log: `docs/development_log.md`
+9. Qt legacy migration notes:
 - `docs/migration/qt_to_wpf_gap_analysis.md`
 - `docs/migration/legacy_qt_freeze_policy.md`
 
