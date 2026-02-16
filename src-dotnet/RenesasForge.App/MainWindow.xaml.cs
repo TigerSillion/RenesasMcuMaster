@@ -2,9 +2,11 @@ using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.IO.Ports;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -15,6 +17,7 @@ using RenesasForge.Core.Models;
 using RenesasForge.Protocol;
 using RenesasForge.Transport.Serial.Impl;
 using ModelFrame = RenesasForge.Core.Models.Frame;
+using IOPath = System.IO.Path;
 
 namespace RenesasForge.App;
 
@@ -30,6 +33,7 @@ public partial class MainWindow : Window
     private readonly ConcurrentQueue<double> _sampleQueue = new();
     private readonly double[] _waveBuffer = new double[900];
     private readonly object _sampleSync = new();
+    private readonly List<DataFrame> _replayFrames = new();
 
     private readonly ObservableCollection<VariableItem> _variables = new();
     private readonly Dictionary<uint, VariableItem> _variableMap = new();
@@ -38,6 +42,11 @@ public partial class MainWindow : Window
     private TransportConfig? _lastConfig;
     private bool _manualDisconnect;
     private DateTime _lastStatsUpdate = DateTime.MinValue;
+    private DateTime _replayAnchorWallClock = DateTime.MinValue;
+    private ulong _replayAnchorTimestampUs;
+    private int _replayIndex;
+    private bool _isReplayPlaying;
+    private string? _lastRecordPath;
 
     private int _frameCount;
     private int _sampleCount;
@@ -162,8 +171,16 @@ public partial class MainWindow : Window
     {
         _ = sender;
         _ = e;
-        var path = System.IO.Path.Combine(Environment.CurrentDirectory, $"record_{DateTime.Now:yyyyMMdd_HHmmss}.rfr");
-        await _recordEngine.StartAsync(path, CancellationToken.None);
+        var path = IOPath.Combine(Environment.CurrentDirectory, "build", "records", $"record_{DateTime.Now:yyyyMMdd_HHmmss}.rfr");
+        var ok = await _recordEngine.StartAsync(path, CancellationToken.None);
+        if (!ok)
+        {
+            BottomStatusText.Text = "Record start failed.";
+            Log("Record start failed.");
+            return;
+        }
+
+        _lastRecordPath = path;
         RecordStatusText.Text = "Record: On";
         BottomStatusText.Text = $"Recording to {path}";
         Log($"Record start: {path}");
@@ -183,10 +200,86 @@ public partial class MainWindow : Window
     {
         _ = sender;
         _ = e;
-        var path = System.IO.Path.Combine(Environment.CurrentDirectory, $"export_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
-        await _recordEngine.ExportCsvAsync(path, _dataEngine.RecentFrames(int.MaxValue), CancellationToken.None);
-        BottomStatusText.Text = $"CSV exported: {path}";
-        Log($"CSV exported: {path}");
+        var path = IOPath.Combine(Environment.CurrentDirectory, "build", "exports", $"export_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+        var exportedFromRecord = !string.IsNullOrWhiteSpace(_lastRecordPath) && File.Exists(_lastRecordPath);
+        var ok = exportedFromRecord
+            ? await _recordEngine.ExportCsvFromRecordAsync(_lastRecordPath!, path, CancellationToken.None)
+            : await _recordEngine.ExportCsvAsync(path, _dataEngine.RecentFrames(int.MaxValue), CancellationToken.None);
+
+        BottomStatusText.Text = ok ? $"CSV exported: {path}" : "CSV export failed.";
+        Log(ok
+            ? $"CSV exported ({(exportedFromRecord ? "record" : "memory")}): {path}"
+            : "CSV export failed.");
+    }
+
+    private async void LoadRecordButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+
+        var initialDir = IOPath.Combine(Environment.CurrentDirectory, "build", "records");
+        var dialog = new OpenFileDialog
+        {
+            Filter = "RenesasForge Record (*.rfr)|*.rfr|All Files (*.*)|*.*",
+            CheckFileExists = true,
+            InitialDirectory = Directory.Exists(initialDir) ? initialDir : Environment.CurrentDirectory
+        };
+
+        if (dialog.ShowDialog(this) != true) return;
+
+        var frames = await _recordEngine.LoadFramesAsync(dialog.FileName, CancellationToken.None);
+        _replayFrames.Clear();
+        _replayFrames.AddRange(frames.OrderBy(x => x.TimestampUs));
+        _replayIndex = 0;
+        _isReplayPlaying = false;
+        _lastRecordPath = dialog.FileName;
+
+        if (_replayFrames.Count == 0)
+        {
+            BottomStatusText.Text = "No stream frames in selected record.";
+            Log($"Replay load: no frames ({dialog.FileName})");
+            return;
+        }
+
+        BottomStatusText.Text = $"Loaded replay frames: {_replayFrames.Count}";
+        Log($"Replay loaded: {_replayFrames.Count} frame(s) from {dialog.FileName}");
+    }
+
+    private void PlayRecordButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        if (_replayFrames.Count == 0)
+        {
+            BottomStatusText.Text = "Load a record first.";
+            return;
+        }
+
+        if (_replayIndex >= _replayFrames.Count) _replayIndex = 0;
+        _isReplayPlaying = true;
+        ResetReplayAnchor();
+        BottomStatusText.Text = $"Replay playing @ {GetReplaySpeed():0.##}x";
+        Log($"Replay play from frame {_replayIndex + 1}/{_replayFrames.Count}");
+    }
+
+    private void PauseRecordButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        if (!_isReplayPlaying) return;
+        _isReplayPlaying = false;
+        BottomStatusText.Text = "Replay paused.";
+        Log("Replay paused.");
+    }
+
+    private void StopRecordPlaybackButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        _isReplayPlaying = false;
+        _replayIndex = 0;
+        BottomStatusText.Text = "Replay stopped.";
+        Log("Replay stopped.");
     }
 
     private void LoadMockVarsButton_OnClick(object sender, RoutedEventArgs e)
@@ -346,13 +439,14 @@ public partial class MainWindow : Window
                 HandleReadMemFrame(frame.Payload);
                 break;
             case CommandId.StreamData:
-                if (TryParseDataFrame(frame, out var dataFrame))
+                if (StreamFrameCodec.TryParsePayload(frame.Payload, out var dataFrame))
                 {
                     _dataEngine.Append(dataFrame);
                     if (_recordEngine.IsRecording)
                     {
-                        var now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000UL;
-                        _ = _recordEngine.AppendChunkAsync(new RecordChunk(now, now, frame.Payload), CancellationToken.None);
+                        _ = _recordEngine.AppendChunkAsync(
+                            new RecordChunk(dataFrame.TimestampUs, dataFrame.TimestampUs, frame.Payload),
+                            CancellationToken.None);
                     }
                 }
                 break;
@@ -410,57 +504,78 @@ public partial class MainWindow : Window
         Log($"READ_MEM updated {values.Count} item(s)");
     }
 
-    private bool TryParseDataFrame(ModelFrame frame, out DataFrame dataFrame)
+    private ushort ParseWaveChannelOrDefault()
     {
-        dataFrame = new DataFrame(0, Array.Empty<ChannelValue>());
-        if (frame.Cmd != CommandId.StreamData || frame.Payload.Length == 0) return false;
+        return ushort.TryParse(WaveChannelTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var channel)
+            ? channel
+            : (ushort)0;
+    }
 
-        // Binary stream format: ts_us(8) + repeat(channel_id:u16, value:f32).
-        if (frame.Payload.Length >= 8 && (frame.Payload.Length - 8) % 6 == 0)
+    private double GetReplaySpeed()
+    {
+        var text = (ReplaySpeedComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "1.0x";
+        text = text.Replace("x", string.Empty, StringComparison.OrdinalIgnoreCase);
+        return double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var speed)
+            ? Math.Clamp(speed, 0.1, 32.0)
+            : 1.0;
+    }
+
+    private void ResetReplayAnchor()
+    {
+        if (_replayIndex >= _replayFrames.Count) return;
+        _replayAnchorTimestampUs = _replayFrames[_replayIndex].TimestampUs;
+        _replayAnchorWallClock = DateTime.UtcNow;
+    }
+
+    private void PumpReplayFrames()
+    {
+        if (_replayFrames.Count == 0 || _replayIndex >= _replayFrames.Count)
         {
-            var ts = BitConverter.ToUInt64(frame.Payload, 0);
-            var list = new List<ChannelValue>();
-            for (var i = 8; i + 5 < frame.Payload.Length; i += 6)
-            {
-                var ch = BitConverter.ToUInt16(frame.Payload, i);
-                var val = BitConverter.ToSingle(frame.Payload, i + 2);
-                list.Add(new ChannelValue(ch, val));
-            }
-
-            dataFrame = new DataFrame(ts, list);
-            return list.Count > 0;
+            _isReplayPlaying = false;
+            return;
         }
 
-        var text = Encoding.ASCII.GetString(frame.Payload);
-        // VOFA-compatible text mode: comma-separated numeric values.
-        var parts = text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0) return false;
+        if (_replayAnchorWallClock == DateTime.MinValue) ResetReplayAnchor();
+        var elapsedUs = Math.Max(0.0, (DateTime.UtcNow - _replayAnchorWallClock).TotalMilliseconds * 1000.0 * GetReplaySpeed());
+        var targetTimestampUs = _replayAnchorTimestampUs + (ulong)elapsedUs;
 
-        var channels = new List<ChannelValue>();
-        ushort chId = 0;
-        foreach (var part in parts)
+        while (_replayIndex < _replayFrames.Count && _replayFrames[_replayIndex].TimestampUs <= targetTimestampUs)
         {
-            if (double.TryParse(part, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-            {
-                channels.Add(new ChannelValue(chId++, parsed));
-            }
+            OnDataFrameReady(_replayFrames[_replayIndex]);
+            _replayIndex++;
         }
 
-        if (channels.Count == 0) return false;
-        var tsUs = (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000UL;
-        dataFrame = new DataFrame(tsUs, channels);
-        return true;
+        if (_replayIndex < _replayFrames.Count) return;
+        _isReplayPlaying = false;
+        BottomStatusText.Text = $"Replay complete ({_replayFrames.Count} frames).";
+        Log("Replay complete.");
     }
 
     private void OnDataFrameReady(DataFrame frame)
     {
+        var targetChannel = ParseWaveChannelOrDefault();
+        var sampleFound = false;
+        var sampleValue = 0.0;
+        foreach (var channel in frame.Channels)
+        {
+            if (channel.ChannelId != targetChannel) continue;
+            sampleValue = channel.Value;
+            sampleFound = true;
+            break;
+        }
+
+        if (!sampleFound && frame.Channels.Count > 0 && targetChannel == 0)
+        {
+            sampleValue = frame.Channels[0].Value;
+            sampleFound = true;
+        }
+
+        if (!sampleFound) return;
+
         lock (_sampleSync)
         {
-            foreach (var ch in frame.Channels)
-            {
-                _sampleQueue.Enqueue(ch.Value);
-                _sampleCount++;
-            }
+            _sampleQueue.Enqueue(sampleValue);
+            _sampleCount++;
         }
 
         Dispatcher.Invoke(() => SamplesStatusText.Text = $"Samples: {_sampleCount}");
@@ -502,7 +617,9 @@ public partial class MainWindow : Window
         _ = sender;
         _ = e;
 
-        if (!_transport.IsOpen)
+        if (_isReplayPlaying) PumpReplayFrames();
+
+        if (!_transport.IsOpen && !_isReplayPlaying)
         {
             var t = DateTime.Now.TimeOfDay.TotalSeconds;
             _sampleQueue.Enqueue(Math.Sin(t * 2.0) * 0.7 + Math.Cos(t * 0.6) * 0.2);
@@ -519,9 +636,10 @@ public partial class MainWindow : Window
         if (DateTime.UtcNow - _lastStatsUpdate >= TimeSpan.FromSeconds(1))
         {
             _lastStatsUpdate = DateTime.UtcNow;
-            if (_dataEngine.TryGetChannelStats(0, 2000, out var stats))
+            var waveChannel = ParseWaveChannelOrDefault();
+            if (_dataEngine.TryGetChannelStats(waveChannel, 2000, out var stats))
             {
-                BottomStatusText.Text = $"Ch0 Mean={stats.Mean:F3}  PkPk={stats.PeakToPeak:F3}  Freq={stats.FrequencyHz:F2}Hz";
+                BottomStatusText.Text = $"Ch{waveChannel} Mean={stats.Mean:F3}  PkPk={stats.PeakToPeak:F3}  Freq={stats.FrequencyHz:F2}Hz";
             }
         }
     }
@@ -642,6 +760,19 @@ public partial class MainWindow : Window
             DataType.Float64 => 8,
             _ => 4
         };
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _plotTimer.Stop();
+        _dataEngine.DataFrameReady -= OnDataFrameReady;
+        _transport.DataReceived -= OnTransportData;
+        _transport.ErrorOccurred -= OnTransportError;
+        _transport.StateChanged -= OnTransportStateChanged;
+        _ = _recordEngine.CloseAsync();
+        _ = _transport.CloseAsync();
+        _transport.Dispose();
+        base.OnClosed(e);
     }
 
     private void Log(string message)

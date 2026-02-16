@@ -11,16 +11,23 @@ public sealed class RecordEngine
     private int _pendingChunks;
 
     public bool IsRecording => _stream is not null;
+    public string? CurrentRecordPath { get; private set; }
 
     public async Task<bool> StartAsync(string path, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
         await _gate.WaitAsync(ct);
         try
         {
             await CloseInternalAsync();
-            _stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, useAsync: true);
+            var fullPath = Path.GetFullPath(path);
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            _stream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, useAsync: true);
             await _stream.WriteAsync(Magic, ct);
             _pendingChunks = 0;
+            CurrentRecordPath = fullPath;
             return true;
         }
         finally
@@ -95,9 +102,35 @@ public sealed class RecordEngine
         }
     }
 
+    public async IAsyncEnumerable<DataFrame> ReadFramesAsync(
+        string path,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var chunk in ReadChunksAsync(path, ct))
+        {
+            if (StreamFrameCodec.TryParsePayload(chunk.PackedSamples, out var frame, chunk.StartTs)) yield return frame;
+        }
+    }
+
+    public async Task<IReadOnlyList<DataFrame>> LoadFramesAsync(string path, CancellationToken ct)
+    {
+        var frames = new List<DataFrame>();
+        await foreach (var frame in ReadFramesAsync(path, ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            frames.Add(frame);
+        }
+
+        return frames;
+    }
+
     public async Task<bool> ExportCsvAsync(string path, IEnumerable<DataFrame> frames, CancellationToken ct)
     {
-        await using var writer = new StreamWriter(path, false, Encoding.UTF8);
+        var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+
+        await using var writer = new StreamWriter(fullPath, false, new UTF8Encoding(false));
         await writer.WriteLineAsync("timestamp_us,channel_id,value");
         foreach (var frame in frames)
         {
@@ -109,6 +142,29 @@ public sealed class RecordEngine
         }
 
         return true;
+    }
+
+    public async Task<bool> ExportCsvFromRecordAsync(string recordPath, string csvPath, CancellationToken ct)
+    {
+        var fullPath = Path.GetFullPath(csvPath);
+        var directory = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+
+        await using var writer = new StreamWriter(fullPath, false, new UTF8Encoding(false));
+        await writer.WriteLineAsync("timestamp_us,channel_id,value");
+
+        var exportedRows = 0;
+        await foreach (var frame in ReadFramesAsync(recordPath, ct))
+        {
+            foreach (var channel in frame.Channels)
+            {
+                ct.ThrowIfCancellationRequested();
+                await writer.WriteLineAsync($"{frame.TimestampUs},{channel.ChannelId},{channel.Value}");
+                exportedRows++;
+            }
+        }
+
+        return exportedRows > 0;
     }
 
     private async Task CloseInternalAsync()

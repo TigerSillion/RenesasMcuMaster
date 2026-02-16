@@ -69,12 +69,28 @@
                 <TextBlock Margin="4,0,6,0" VerticalAlignment="Center" Foreground="#95A6C2" Text="Hz" />
                 <TextBox x:Name="StreamRateTextBox" Width="52" Height="28" Margin="0,0,8,0" Text="200" />
                 <Button Width="112" Height="30" Margin="0,0,8,0" Content="SET STREAM" Click="SetStreamConfigButton_OnClick" />
+                <TextBlock Margin="4,0,6,0" VerticalAlignment="Center" Foreground="#95A6C2" Text="WaveCh" />
+                <TextBox x:Name="WaveChannelTextBox" Width="46" Height="28" Margin="0,0,8,0" Text="0" />
 
                 <Separator Width="18" />
 
                 <Button Width="120" Height="30" Margin="0,0,8,0" Content="Start Record" Click="StartRecordButton_OnClick" />
                 <Button Width="120" Height="30" Margin="0,0,8,0" Content="Stop Record" Click="StopRecordButton_OnClick" />
                 <Button Width="110" Height="30" Margin="0,0,8,0" Content="Export CSV" Click="ExportCsvButton_OnClick" />
+
+                <Separator Width="18" />
+
+                <Button Width="120" Height="30" Margin="0,0,8,0" Content="Load Record" Click="LoadRecordButton_OnClick" />
+                <Button Width="72" Height="30" Margin="0,0,8,0" Content="Play" Click="PlayRecordButton_OnClick" />
+                <Button Width="72" Height="30" Margin="0,0,8,0" Content="Pause" Click="PauseRecordButton_OnClick" />
+                <Button Width="72" Height="30" Margin="0,0,8,0" Content="Stop" Click="StopRecordPlaybackButton_OnClick" />
+                <TextBlock Margin="4,0,6,0" VerticalAlignment="Center" Foreground="#95A6C2" Text="Speed" />
+                <ComboBox x:Name="ReplaySpeedComboBox" Width="72" Height="28" VerticalContentAlignment="Center">
+                    <ComboBoxItem Content="0.5x" />
+                    <ComboBoxItem Content="1.0x" IsSelected="True" />
+                    <ComboBoxItem Content="2.0x" />
+                    <ComboBoxItem Content="4.0x" />
+                </ComboBox>
             </WrapPanel>
         </Border>
 

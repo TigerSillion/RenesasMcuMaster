@@ -347,6 +347,10 @@ class UartMcuSim:
         self.tx_seq = (self.tx_seq + 1) & 0xFFFF
         return v
 
+    @staticmethod
+    def build_ack_payload(status: int, for_cmd: int, for_seq: int) -> bytes:
+        return struct.pack("<BBH", status & 0xFF, for_cmd & 0xFF, for_seq & 0xFFFF)
+
     def send_rforge(self, cmd: CommandId, payload: bytes):
         if self.drop_rate > 0 and random.random() < self.drop_rate:
             return
@@ -425,13 +429,13 @@ class UartMcuSim:
             print(f"[RX] cmd=0x{cmd:02X} seq={seq} len={len(payload)}")
 
         if cmd == CommandId.Ping:
-            self.send_rforge(CommandId.Ack, b"")
+            self.send_rforge(CommandId.Ack, self.build_ack_payload(0, cmd, seq))
         elif cmd == CommandId.StreamStart:
             self.stream_enabled = True
-            self.send_rforge(CommandId.Ack, b"")
+            self.send_rforge(CommandId.Ack, self.build_ack_payload(0, cmd, seq))
         elif cmd == CommandId.StreamStop:
             self.stream_enabled = False
-            self.send_rforge(CommandId.Ack, b"")
+            self.send_rforge(CommandId.Ack, self.build_ack_payload(0, cmd, seq))
         elif cmd == CommandId.GetVarTable:
             if self.var_table_format == "binary":
                 payload_out = encode_var_table_binary(self.vars)
@@ -474,12 +478,22 @@ class UartMcuSim:
                         v.value = float(struct.unpack_from("<f", raw, 0)[0])
                 except struct.error:
                     pass
-            self.send_rforge(CommandId.Ack, b"")
-        elif cmd == CommandId.SetStreamConfig and len(payload) >= 2:
-            # Simulator convention: [channel_count, stream_hz(Hz) low-byte].
-            self.channel_count = max(1, payload[0])
-            self.stream_hz = max(1.0, float(payload[1]))
-            self.send_rforge(CommandId.Ack, b"")
+            self.send_rforge(CommandId.Ack, self.build_ack_payload(0, cmd, seq))
+        elif cmd == CommandId.SetStreamConfig:
+            # v1 format: [channel_count:u8][reserved:u8][stream_hz:u16][flags:u16].
+            if len(payload) >= 6:
+                self.channel_count = max(1, payload[0])
+                self.stream_hz = max(1.0, float(struct.unpack_from("<H", payload, 2)[0]))
+                self.send_rforge(CommandId.Ack, self.build_ack_payload(0, cmd, seq))
+            elif len(payload) >= 2:
+                # Legacy fallback for early tools.
+                self.channel_count = max(1, payload[0])
+                self.stream_hz = max(1.0, float(payload[1]))
+                self.send_rforge(CommandId.Ack, self.build_ack_payload(0, cmd, seq))
+            else:
+                self.send_rforge(CommandId.Ack, self.build_ack_payload(2, cmd, seq))
+        else:
+            self.send_rforge(CommandId.Ack, self.build_ack_payload(1, cmd, seq))
 
     def print_stats(self):
         now = time.perf_counter()

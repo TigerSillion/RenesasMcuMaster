@@ -124,4 +124,74 @@ public sealed class ParserAndCoreTests
             if (File.Exists(path)) File.Delete(path);
         }
     }
+
+    [Fact]
+    public void StreamFrameCodec_ShouldParseBinaryPayload()
+    {
+        var frame = new DataFrame(
+            123_456,
+            new[]
+            {
+                new ChannelValue(0, 1.25),
+                new ChannelValue(3, -2.5)
+            });
+
+        var payload = StreamFrameCodec.EncodeBinaryPayload(frame);
+        StreamFrameCodec.TryParsePayload(payload, out var parsed).Should().BeTrue();
+        parsed.TimestampUs.Should().Be(123_456);
+        parsed.Channels.Should().HaveCount(2);
+        parsed.Channels[0].ChannelId.Should().Be(0);
+        parsed.Channels[0].Value.Should().BeApproximately(1.25, 0.0001);
+        parsed.Channels[1].ChannelId.Should().Be(3);
+        parsed.Channels[1].Value.Should().BeApproximately(-2.5, 0.0001);
+    }
+
+    [Fact]
+    public void StreamFrameCodec_ShouldParseVofaPayloadWithFallbackTimestamp()
+    {
+        var payload = Encoding.ASCII.GetBytes("10.5,-2.25,7.0");
+        StreamFrameCodec.TryParsePayload(payload, out var frame, fallbackTimestampUs: 88_000).Should().BeTrue();
+
+        frame.TimestampUs.Should().Be(88_000);
+        frame.Channels.Should().HaveCount(3);
+        frame.Channels[0].Value.Should().BeApproximately(10.5, 0.0001);
+        frame.Channels[1].Value.Should().BeApproximately(-2.25, 0.0001);
+        frame.Channels[2].Value.Should().BeApproximately(7.0, 0.0001);
+    }
+
+    [Fact]
+    public async Task RecordEngine_ShouldLoadFramesAndExportCsvFromRecord()
+    {
+        var engine = new RecordEngine();
+        var recordPath = Path.Combine(Path.GetTempPath(), $"rf_frames_{Guid.NewGuid():N}.rfr");
+        var csvPath = Path.Combine(Path.GetTempPath(), $"rf_frames_{Guid.NewGuid():N}.csv");
+        try
+        {
+            var frame0 = new DataFrame(1000, new[] { new ChannelValue(0, 1.0), new ChannelValue(1, 2.0) });
+            var frame1 = new DataFrame(2000, new[] { new ChannelValue(0, -3.5) });
+
+            await engine.StartAsync(recordPath, CancellationToken.None);
+            await engine.AppendChunkAsync(new RecordChunk(frame0.TimestampUs, frame0.TimestampUs, StreamFrameCodec.EncodeBinaryPayload(frame0)), CancellationToken.None);
+            await engine.AppendChunkAsync(new RecordChunk(frame1.TimestampUs, frame1.TimestampUs, StreamFrameCodec.EncodeBinaryPayload(frame1)), CancellationToken.None);
+            await engine.CloseAsync();
+
+            var loaded = await engine.LoadFramesAsync(recordPath, CancellationToken.None);
+            loaded.Should().HaveCount(2);
+            loaded[0].Channels.Should().HaveCount(2);
+            loaded[1].Channels[0].Value.Should().BeApproximately(-3.5, 0.0001);
+
+            var ok = await engine.ExportCsvFromRecordAsync(recordPath, csvPath, CancellationToken.None);
+            ok.Should().BeTrue();
+            File.Exists(csvPath).Should().BeTrue();
+
+            var lines = await File.ReadAllLinesAsync(csvPath);
+            lines.Should().HaveCountGreaterThan(1);
+            lines[0].Should().Be("timestamp_us,channel_id,value");
+        }
+        finally
+        {
+            if (File.Exists(recordPath)) File.Delete(recordPath);
+            if (File.Exists(csvPath)) File.Delete(csvPath);
+        }
+    }
 }
